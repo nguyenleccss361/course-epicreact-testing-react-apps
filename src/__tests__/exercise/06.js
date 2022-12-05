@@ -6,6 +6,11 @@ import {render, screen, act} from '@testing-library/react'
 import Location from '../../examples/location'
 
 // 🐨 set window.navigator.geolocation to an object that has a getCurrentPosition mock function
+beforeAll(() => {
+  window.navigator.geolocation = {
+    getCurrentPosition: jest.fn(),
+  }
+})
 
 // 💰 I'm going to give you this handy utility function
 // it allows you to create a promise that you can resolve/reject on demand.
@@ -17,20 +22,40 @@ function deferred() {
   })
   return {promise, resolve, reject}
 }
-// 💰 Here's an example of how you use this:
-// const {promise, resolve, reject} = deferred()
-// promise.then(() => {/* do something */})
-// // do other setup stuff and assert on the pending state
-// resolve()
-// await promise
-// // assert on the resolved state
 
 test('displays the users current location', async () => {
   // 🐨 create a fakePosition object that has an object called "coords" with latitude and longitude
   // 📜 https://developer.mozilla.org/en-US/docs/Web/API/GeolocationPosition
-  //
+  const fakePosition = {
+    coords: {
+      latitude: 35,
+      longitude: 139,
+    },
+  }
   // 🐨 create a deferred promise here
-  //
+  const {promise, resolve} = deferred()
+  window.navigator.geolocation.getCurrentPosition.mockImplementation(cb =>
+    promise.then(() => cb(fakePosition)),
+  )
+  // do other setup stuff and assert on the pending state
+  render(<Location />)
+
+  expect(screen.getByLabelText(/loading/i)).toBeInTheDocument()
+
+  await act(async () => {
+    resolve()
+    await promise
+  })
+
+  expect(screen.queryByLabelText(/loading/i)).not.toBeInTheDocument()
+  expect(screen.getByText(/latitude/i)).toHaveTextContent(
+    `Latitude: ${fakePosition.coords.latitude}`,
+  )
+  expect(screen.getByText(/longitude/i)).toHaveTextContent(
+    `Longitude: ${fakePosition.coords.longitude}`,
+  )
+
+  // assert on the resolved state
   // 🐨 Now we need to mock the geolocation's getCurrentPosition function
   // To mock something you need to know its API and simulate that in your mock:
   // 📜 https://developer.mozilla.org/en-US/docs/Web/API/Geolocation/getCurrentPosition
@@ -69,3 +94,25 @@ test('displays the users current location', async () => {
 eslint
   no-unused-vars: "off",
 */
+
+test('displays error message when geolocation is not supported', async () => {
+  const fakeError = new Error(
+    'Geolocation is not supported or permission denied',
+  )
+
+  const {promise, reject} = deferred()
+  window.navigator.geolocation.getCurrentPosition.mockImplementation(
+    (successCallback, errorCallback) =>
+      promise.catch(() => errorCallback(fakeError)),
+  )
+
+  render(<Location />)
+
+  expect(screen.getByLabelText(/loading/i)).toBeInTheDocument()
+
+  await act(async () => {
+    reject()
+  })
+
+  expect(screen.getByRole('alert')).toHaveTextContent(fakeError.message)
+})
